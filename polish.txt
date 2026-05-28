@@ -1,0 +1,101 @@
+233:function PolishView({
+234-  initialResult,
+235-  onClearInitial,
+236-}: {
+237-  initialResult: PolishResult | null;
+238-  onClearInitial: () => void;
+239-}) {
+240-  const [input, setInput] = useState("");
+241-  const [isLoading, setIsLoading] = useState(false);
+242-  const [result, setResult] = useState<PolishResult | null>(null);
+243-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+244-
+245-  useEffect(() => {
+246-    if (initialResult) {
+247-      setResult(initialResult);
+248-      setInput(initialResult.original_input);
+249-      setSavedIds(new Set()); // Reset saved status when loading from history
+250-      onClearInitial();
+251-    }
+252-  }, [initialResult, onClearInitial]);
+253-
+254-  const handlePolish = async () => {
+255-    if (!input.trim()) return;
+256-    setIsLoading(true);
+257-    setResult(null);
+258-    setSavedIds(new Set()); // Bug 1 fix: Reset saved items when re-polishing
+259-    try {
+260-      const res = await fetch("/api/polish", {
+261-        method: "POST",
+262-        headers: { "Content-Type": "application/json" },
+263-        body: JSON.stringify({ text: input }),
+264-      });
+265-      if (res.ok) {
+266-        const data = await res.json();
+267-        setResult(data);
+268-
+269-        // Save to History (Bug 2)
+270-        const historyItem: HistoryItem = {
+271-          id: crypto.randomUUID(),
+272-          result: data,
+273-          created_at: new Date().toISOString(),
+274-        };
+275-        const existingHistory = JSON.parse(
+276-          localStorage.getItem("pattern_drill_history") || "[]",
+277-        );
+278-        localStorage.setItem(
+279-          "pattern_drill_history",
+280-          JSON.stringify([historyItem, ...existingHistory]),
+281-        );
+282-      } else {
+283-        const errorData = await res.json();
+284-        if (
+285-          res.status === 429 ||
+286-          errorData?.error?.includes("429") ||
+287-          errorData?.error?.includes("quota")
+288-        ) {
+289-          alert(
+290-            "You have exceeded your AI model quota. Please wait a minute and try again.",
+291-          );
+292-        } else {
+293-          alert(
+294-            "Failed to polish text: " + (errorData.error || res.statusText),
+295-          );
+296-        }
+297-      }
+298-    } catch (e) {
+299-      console.error(e);
+300-      alert("Network error. Please try again later.");
+301-    } finally {
+302-      setIsLoading(false);
+303-    }
+304-  };
+305-
+306-  const handleSave = (type: "work" | "casual", data: PolishResult) => {
+307-    const id = crypto.randomUUID();
+308-    const item = data[type];
+309-    const exp: SavedExpression = {
+310-      id,
+311-      original_text: data.original_input,
+312-      scene_type: type,
+313-      english_sentence: item.sentence,
+314-      key_pattern: item.key_pattern,
+315-      explanation: item.explanation,
+316-      created_at: new Date().toISOString(),
+317-    };
+318-
+319-    const existing = JSON.parse(
+320-      localStorage.getItem("pattern_drill_saved") || "[]",
+321-    );
+322-    localStorage.setItem(
+323-      "pattern_drill_saved",
+324-      JSON.stringify([exp, ...existing]),
+325-    );
+326-
+327-    setSavedIds((prev) => new Set(prev).add(type));
+328-  };
+329-
+330-  return (
+331-    <motion.div
+332-      initial={{ opacity: 0, y: 10 }}
+333-      animate={{ opacity: 1, y: 0 }}

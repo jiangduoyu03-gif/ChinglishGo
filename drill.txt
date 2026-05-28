@@ -1,0 +1,101 @@
+460:function DrillView() {
+461-  const [expressions, setExpressions] = useState<SavedExpression[]>([]);
+462-  const [currentIndex, setCurrentIndex] = useState(0);
+463-
+464-  const [activeLevel, setActiveLevel] = useState<1 | 2 | 3>(1);
+465-  const [progress, setProgress] = useState<DrillProgress>({});
+466-  const [prompts, setPrompts] = useState<{ [key: string]: string }>({});
+467-
+468-  const [isRecording, setIsRecording] = useState(false);
+469-  const [isChecking, setIsChecking] = useState(false);
+470-  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
+471-  const [feedback, setFeedback] = useState<{
+472-    isCorrect: boolean;
+473-    text: string;
+474-  } | null>(null);
+475-
+476-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+477-  const audioChunksRef = useRef<Blob[]>([]);
+478-
+479-  useEffect(() => {
+480-    const saved = JSON.parse(
+481-      localStorage.getItem("pattern_drill_saved") || "[]",
+482-    );
+483-    setExpressions(saved);
+484-    const storedProgress = JSON.parse(
+485-      localStorage.getItem("pattern_drill_progress") || "{}",
+486-    );
+487-    setProgress(storedProgress);
+488-  }, []);
+489-
+490-  const current = expressions[currentIndex];
+491-
+492-  const updateProgress = (
+493-    patternId: string,
+494-    level: number,
+495-    isCorrect: boolean,
+496-  ) => {
+497-    setProgress((prev) => {
+498-      const currentPatternProgress = prev[patternId] || {};
+499-      const currentLevelProgress = currentPatternProgress[level] || {
+500-        completed: false,
+501-        attempts: 0,
+502-      };
+503-
+504-      const newProgress = {
+505-        ...prev,
+506-        [patternId]: {
+507-          ...currentPatternProgress,
+508-          [level]: {
+509-            completed: currentLevelProgress.completed || isCorrect,
+510-            attempts: currentLevelProgress.attempts + 1,
+511-          },
+512-        },
+513-      };
+514-
+515-      localStorage.setItem(
+516-        "pattern_drill_progress",
+517-        JSON.stringify(newProgress),
+518-      );
+519-      return newProgress;
+520-    });
+521-  };
+522-
+523-  const loadPrompt = async (expr: SavedExpression, level: 1 | 2 | 3) => {
+524-    const promptKey = `${expr.id}-${level}`;
+525-    if (prompts[promptKey]) return;
+526-
+527-    setIsGeneratingMessage(true);
+528-    setFeedback(null);
+529-    try {
+530-      const res = await fetch("/api/drill-generate", {
+531-        method: "POST",
+532-        headers: { "Content-Type": "application/json" },
+533-        body: JSON.stringify({
+534-          pattern: expr.key_pattern,
+535-          sentence: expr.english_sentence,
+536-          level,
+537-        }),
+538-      });
+539-      if (res.ok) {
+540-        const data = await res.json();
+541-        setPrompts((prev) => ({ ...prev, [promptKey]: data.prompt }));
+542-      } else {
+543-        const errData = await res.json().catch(() => ({}));
+544-        setPrompts((prev) => ({
+545-          ...prev,
+546-          [promptKey]: `Error generating drill scenario: ${errData.error || res.statusText}\nPlease check API keys and try again.`,
+547-        }));
+548-      }
+549-    } catch (e: any) {
+550-      console.error(e);
+551-    } finally {
+552-      setIsGeneratingMessage(false);
+553-    }
+554-  };
+555-
+556-  useEffect(() => {
+557-    if (current) {
+558-      loadPrompt(current, activeLevel);
+559-      setFeedback(null);
+560-    }
